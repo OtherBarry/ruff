@@ -1,12 +1,13 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
+use itertools::Either::{Left, Right};
 use itertools::Itertools;
 
 use std::fmt;
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use crate::{int, LiteralExpressionRef};
+use crate::{int, ConcatenatedBytes, ConcatenatedStr, LiteralExpressionRef};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 /// See also [mod](https://docs.python.org/3/library/ast.html#ast.mod)
@@ -589,12 +590,22 @@ pub enum Expr {
     Call(ExprCall),
     #[is(name = "formatted_value_expr")]
     FormattedValue(ExprFormattedValue),
+
+    // TODO: Update this once design is finalized
     #[is(name = "f_string_expr")]
     FString(ExprFString),
     #[is(name = "string_literal_expr")]
     StringLiteral(ExprStringLiteral),
     #[is(name = "bytes_literal_expr")]
     BytesLiteral(ExprBytesLiteral),
+
+    #[is(name = "fstring_new_expr")]
+    FStringNew(ExprFStringNew),
+    #[is(name = "string_literal_new_expr")]
+    StringLiteralNew(ExprStringLiteralNew),
+    #[is(name = "bytes_literal_new_expr")]
+    BytesLiteralNew(ExprBytesLiteralNew),
+
     #[is(name = "number_literal_expr")]
     NumberLiteral(ExprNumberLiteral),
     #[is(name = "boolean_literal_expr")]
@@ -652,6 +663,7 @@ impl Expr {
         }
     }
 
+    // TODO: Remove this method
     pub fn is_implicit_concatenated_string(&self) -> bool {
         match self {
             Expr::StringLiteral(ExprStringLiteral {
@@ -692,6 +704,75 @@ pub struct ExprIpyEscapeCommand {
 impl From<ExprIpyEscapeCommand> for Expr {
     fn from(payload: ExprIpyEscapeCommand) -> Self {
         Expr::IpyEscapeCommand(payload)
+    }
+}
+
+// TODO: Remove this once the design is finalized
+
+/// See also [JoinedStr](https://docs.python.org/3/library/ast.html#ast.JoinedStr)
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExprFString {
+    pub range: TextRange,
+    pub values: Vec<Expr>,
+    pub implicit_concatenated: bool,
+}
+
+impl Ranged for ExprFString {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+impl From<ExprFString> for Expr {
+    fn from(payload: ExprFString) -> Self {
+        Expr::FString(payload)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExprStringLiteral {
+    pub range: TextRange,
+    pub value: String,
+    pub unicode: bool,
+    pub implicit_concatenated: bool,
+}
+
+impl From<ExprStringLiteral> for Expr {
+    fn from(payload: ExprStringLiteral) -> Self {
+        Expr::StringLiteral(payload)
+    }
+}
+
+impl Ranged for ExprStringLiteral {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+impl Deref for ExprStringLiteral {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.value.as_str()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExprBytesLiteral {
+    pub range: TextRange,
+    pub value: Vec<u8>,
+    pub implicit_concatenated: bool,
+}
+
+impl From<ExprBytesLiteral> for Expr {
+    fn from(payload: ExprBytesLiteral) -> Self {
+        Expr::BytesLiteral(payload)
+    }
+}
+
+impl Ranged for ExprBytesLiteral {
+    fn range(&self) -> TextRange {
+        self.range
     }
 }
 
@@ -984,42 +1065,206 @@ pub struct DebugText {
     pub trailing: String,
 }
 
-/// See also [JoinedStr](https://docs.python.org/3/library/ast.html#ast.JoinedStr)
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExprFString {
+pub struct ExprFStringNew {
     pub range: TextRange,
-    pub values: Vec<Expr>,
-    /// Whether the f-string contains multiple string tokens that were implicitly concatenated.
-    pub implicit_concatenated: bool,
+    pub value: FStringValue,
 }
 
-impl From<ExprFString> for Expr {
-    fn from(payload: ExprFString) -> Self {
-        Expr::FString(payload)
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ExprStringLiteral {
-    pub range: TextRange,
-    pub value: String,
-    pub unicode: bool,
-    pub implicit_concatenated: bool,
-}
-
-impl From<ExprStringLiteral> for Expr {
-    fn from(payload: ExprStringLiteral) -> Self {
-        Expr::StringLiteral(payload)
-    }
-}
-
-impl Ranged for ExprStringLiteral {
+impl Ranged for ExprFStringNew {
     fn range(&self) -> TextRange {
         self.range
     }
 }
 
-impl Deref for ExprStringLiteral {
+impl From<ExprFStringNew> for Expr {
+    fn from(payload: ExprFStringNew) -> Self {
+        Expr::FStringNew(payload)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FStringValue {
+    inner: FStringValueInner,
+}
+
+impl FStringValue {
+    pub fn single(value: FString) -> Self {
+        Self {
+            inner: FStringValueInner::Single(value),
+        }
+    }
+
+    pub fn concatenated(values: Vec<FStringPart>) -> Self {
+        assert!(values.len() > 1);
+        Self {
+            inner: FStringValueInner::Concatenated(values),
+        }
+    }
+
+    pub fn is_implicit_concatenated(&self) -> bool {
+        matches!(self.inner, FStringValueInner::Concatenated(_))
+    }
+
+    pub fn parts(&self) -> impl Iterator<Item = FStringPartRef<'_>> {
+        self.inner.parts()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum FStringValueInner {
+    // Invariant: If it's a `Single` variant, then it's guaranteed that it's
+    // a f-string. This is maintained by the parser.
+    Single(FString),
+    Concatenated(Vec<FStringPart>),
+}
+
+impl FStringValueInner {
+    fn parts(&self) -> impl Iterator<Item = FStringPartRef<'_>> {
+        match self {
+            Self::Single(fstring) => Left(std::iter::once(FStringPartRef::FString(fstring))),
+            Self::Concatenated(parts) => Right(parts.iter().map(FStringPartRef::from)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FStringPart {
+    Literal(StringLiteral),
+    FString(FString),
+}
+
+impl FStringPart {
+    pub fn as_ref(&self) -> FStringPartRef<'_> {
+        FStringPartRef::from(self)
+    }
+}
+
+// This is required for `iter` method to work
+#[derive(Clone, Debug, PartialEq)]
+pub enum FStringPartRef<'a> {
+    Literal(&'a StringLiteral),
+    FString(&'a FString),
+}
+
+impl<'a> From<&'a FStringPart> for FStringPartRef<'a> {
+    fn from(part: &'a FStringPart) -> Self {
+        match part {
+            FStringPart::Literal(string) => Self::Literal(string),
+            FStringPart::FString(fstring) => Self::FString(fstring),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FString {
+    pub range: TextRange,
+    pub values: Vec<Expr>,
+}
+
+impl Ranged for FString {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+impl From<FString> for Expr {
+    fn from(payload: FString) -> Self {
+        ExprFStringNew {
+            range: payload.range,
+            value: FStringValue::single(payload),
+        }
+        .into()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExprStringLiteralNew {
+    pub range: TextRange,
+    pub value: StringLiteralValue,
+}
+
+impl From<ExprStringLiteralNew> for Expr {
+    fn from(payload: ExprStringLiteralNew) -> Self {
+        Expr::StringLiteralNew(payload)
+    }
+}
+
+impl Ranged for ExprStringLiteralNew {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StringLiteralValue {
+    inner: StringLiteralValueInner,
+}
+
+impl StringLiteralValue {
+    pub fn single(value: StringLiteral) -> Self {
+        Self {
+            inner: StringLiteralValueInner::Single(value),
+        }
+    }
+
+    pub fn concatenated(values: Vec<StringLiteral>) -> Self {
+        assert!(values.len() > 1);
+        Self {
+            inner: StringLiteralValueInner::Concatenated(values),
+        }
+    }
+
+    pub fn is_implicit_concatenated(&self) -> bool {
+        matches!(self.inner, StringLiteralValueInner::Concatenated(_))
+    }
+
+    pub fn concatenated_str(&self) -> ConcatenatedStr<'_> {
+        ConcatenatedStr {
+            parts: self.inner.parts(),
+        }
+    }
+
+    pub fn parts(&self) -> &[StringLiteral] {
+        self.inner.parts()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum StringLiteralValueInner {
+    Single(StringLiteral),
+    Concatenated(Vec<StringLiteral>),
+}
+
+impl Default for StringLiteralValueInner {
+    fn default() -> Self {
+        Self::Single(StringLiteral::default())
+    }
+}
+
+impl StringLiteralValueInner {
+    fn parts(&self) -> &[StringLiteral] {
+        match self {
+            Self::Single(value) => std::slice::from_ref(value),
+            Self::Concatenated(values) => values.as_slice(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StringLiteral {
+    pub range: TextRange,
+    pub value: String,
+    pub unicode: bool,
+}
+
+impl Ranged for StringLiteral {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+impl Deref for StringLiteral {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -1027,22 +1272,138 @@ impl Deref for ExprStringLiteral {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ExprBytesLiteral {
-    pub range: TextRange,
-    pub value: Vec<u8>,
-    pub implicit_concatenated: bool,
-}
-
-impl From<ExprBytesLiteral> for Expr {
-    fn from(payload: ExprBytesLiteral) -> Self {
-        Expr::BytesLiteral(payload)
+impl StringLiteral {
+    /// Extracts a string slice containing the entire `String`.
+    pub fn as_str(&self) -> &str {
+        self
     }
 }
 
-impl Ranged for ExprBytesLiteral {
+impl From<String> for StringLiteral {
+    fn from(value: String) -> Self {
+        Self {
+            value,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<StringLiteral> for Expr {
+    fn from(payload: StringLiteral) -> Self {
+        ExprStringLiteralNew {
+            range: payload.range,
+            value: StringLiteralValue::single(payload),
+        }
+        .into()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExprBytesLiteralNew {
+    pub range: TextRange,
+    pub value: BytesLiteralValue,
+}
+
+impl From<ExprBytesLiteralNew> for Expr {
+    fn from(payload: ExprBytesLiteralNew) -> Self {
+        Expr::BytesLiteralNew(payload)
+    }
+}
+
+impl Ranged for ExprBytesLiteralNew {
     fn range(&self) -> TextRange {
         self.range
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BytesLiteralValue {
+    inner: BytesLiteralValueInner,
+}
+
+impl BytesLiteralValue {
+    pub fn single(value: BytesLiteral) -> Self {
+        Self {
+            inner: BytesLiteralValueInner::Single(value),
+        }
+    }
+
+    pub fn concatenated(values: Vec<BytesLiteral>) -> Self {
+        assert!(values.len() > 1);
+        Self {
+            inner: BytesLiteralValueInner::Concatenated(values),
+        }
+    }
+
+    pub fn is_implicit_concatenated(&self) -> bool {
+        matches!(self.inner, BytesLiteralValueInner::Concatenated(_))
+    }
+
+    pub fn concatenated_bytes(&self) -> ConcatenatedBytes<'_> {
+        ConcatenatedBytes {
+            parts: self.inner.parts(),
+        }
+    }
+
+    pub fn parts(&self) -> &[BytesLiteral] {
+        self.inner.parts()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum BytesLiteralValueInner {
+    Single(BytesLiteral),
+    Concatenated(Vec<BytesLiteral>),
+}
+
+impl Default for BytesLiteralValueInner {
+    fn default() -> Self {
+        Self::Single(BytesLiteral::default())
+    }
+}
+
+impl BytesLiteralValueInner {
+    fn parts(&self) -> &[BytesLiteral] {
+        match self {
+            Self::Single(value) => std::slice::from_ref(value),
+            Self::Concatenated(values) => values.as_slice(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BytesLiteral {
+    pub range: TextRange,
+    pub value: Vec<u8>,
+}
+
+impl Ranged for BytesLiteral {
+    fn range(&self) -> TextRange {
+        self.range
+    }
+}
+
+impl Deref for BytesLiteral {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.value.as_slice()
+    }
+}
+
+impl BytesLiteral {
+    pub fn as_slice(&self) -> &[u8] {
+        self
+    }
+}
+
+impl From<BytesLiteral> for Expr {
+    fn from(payload: BytesLiteral) -> Self {
+        ExprBytesLiteralNew {
+            range: payload.range,
+            value: BytesLiteralValue::single(payload),
+        }
+        .into()
     }
 }
 
@@ -3021,11 +3382,6 @@ impl Ranged for crate::nodes::ExprFormattedValue {
         self.range
     }
 }
-impl Ranged for crate::nodes::ExprFString {
-    fn range(&self) -> TextRange {
-        self.range
-    }
-}
 impl Ranged for crate::nodes::ExprAttribute {
     fn range(&self) -> TextRange {
         self.range
@@ -3088,12 +3444,15 @@ impl Ranged for crate::Expr {
             Self::Call(node) => node.range(),
             Self::FormattedValue(node) => node.range(),
             Self::FString(node) => node.range(),
-            Expr::StringLiteral(node) => node.range(),
-            Expr::BytesLiteral(node) => node.range(),
-            Expr::NumberLiteral(node) => node.range(),
-            Expr::BooleanLiteral(node) => node.range(),
-            Expr::NoneLiteral(node) => node.range(),
-            Expr::EllipsisLiteral(node) => node.range(),
+            Self::FStringNew(node) => node.range(),
+            Self::StringLiteralNew(node) => node.range(),
+            Self::BytesLiteralNew(node) => node.range(),
+            Self::StringLiteral(node) => node.range(),
+            Self::BytesLiteral(node) => node.range(),
+            Self::NumberLiteral(node) => node.range(),
+            Self::BooleanLiteral(node) => node.range(),
+            Self::NoneLiteral(node) => node.range(),
+            Self::EllipsisLiteral(node) => node.range(),
             Self::Attribute(node) => node.range(),
             Self::Subscript(node) => node.range(),
             Self::Starred(node) => node.range(),
@@ -3101,7 +3460,7 @@ impl Ranged for crate::Expr {
             Self::List(node) => node.range(),
             Self::Tuple(node) => node.range(),
             Self::Slice(node) => node.range(),
-            Expr::IpyEscapeCommand(node) => node.range(),
+            Self::IpyEscapeCommand(node) => node.range(),
         }
     }
 }

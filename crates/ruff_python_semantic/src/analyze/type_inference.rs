@@ -311,6 +311,9 @@ impl From<&Expr> for ResolvedPythonType {
             | Expr::Name(_)
             | Expr::Slice(_)
             | Expr::IpyEscapeCommand(_) => ResolvedPythonType::Unknown,
+            Expr::StringLiteralNew(_) => todo!(),
+            Expr::BytesLiteralNew(_) => todo!(),
+            Expr::FStringNew(_) => todo!(),
         }
     }
 }

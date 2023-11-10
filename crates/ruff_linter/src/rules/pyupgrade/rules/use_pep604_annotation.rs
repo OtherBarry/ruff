@@ -207,5 +207,8 @@ fn is_allowed_value(expr: &Expr) -> bool {
         | Expr::Starred(_)
         | Expr::Slice(_)
         | Expr::IpyEscapeCommand(_) => false,
+        Expr::BytesLiteralNew(_) => todo!(),
+        Expr::FStringNew(_) => todo!(),
+        Expr::StringLiteralNew(_) => todo!(),
     }
 }

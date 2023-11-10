@@ -4341,6 +4341,9 @@ impl From<Expr> for AnyNode {
             Expr::Tuple(node) => AnyNode::ExprTuple(node),
             Expr::Slice(node) => AnyNode::ExprSlice(node),
             Expr::IpyEscapeCommand(node) => AnyNode::ExprIpyEscapeCommand(node),
+            Expr::StringLiteralNew(_) => todo!(),
+            Expr::BytesLiteralNew(_) => todo!(),
+            Expr::FStringNew(_) => todo!(),
         }
     }
 }
@@ -6423,6 +6426,9 @@ impl<'a> From<&'a Expr> for AnyNodeRef<'a> {
             Expr::Tuple(node) => AnyNodeRef::ExprTuple(node),
             Expr::Slice(node) => AnyNodeRef::ExprSlice(node),
             Expr::IpyEscapeCommand(node) => AnyNodeRef::ExprIpyEscapeCommand(node),
+            Expr::StringLiteralNew(_) => todo!(),
+            Expr::BytesLiteralNew(_) => todo!(),
+            Expr::FStringNew(_) => todo!(),
         }
     }
 }

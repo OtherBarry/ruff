@@ -1197,6 +1197,7 @@ where
                 self.semantic.flags |= SemanticModelFlags::F_STRING;
                 visitor::walk_expr(self, expr);
             }
+            // TODO(dhruvmanila): Set `F_STRING` when f-string is implicitly concatenated
             _ => visitor::walk_expr(self, expr),
         }
 

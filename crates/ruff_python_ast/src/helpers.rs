@@ -263,6 +263,9 @@ pub fn any_over_expr(expr: &Expr, func: &dyn Fn(&Expr) -> bool) -> bool {
         | Expr::NoneLiteral(_)
         | Expr::EllipsisLiteral(_)
         | Expr::IpyEscapeCommand(_) => false,
+        Expr::StringLiteralNew(_) => todo!(),
+        Expr::BytesLiteralNew(_) => todo!(),
+        Expr::FStringNew(_) => todo!(),
     }
 }
 

@@ -1201,6 +1201,9 @@ impl<'a> Generator<'a> {
             Expr::IpyEscapeCommand(ast::ExprIpyEscapeCommand { kind, value, .. }) => {
                 self.p(&format!("{kind}{value}"));
             }
+            Expr::StringLiteralNew(_) => todo!(),
+            Expr::BytesLiteralNew(_) => todo!(),
+            Expr::FStringNew(_) => todo!(),
         }
     }
 

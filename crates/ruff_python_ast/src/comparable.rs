@@ -1023,6 +1023,9 @@ impl<'a> From<&'a ast::Expr> for ComparableExpr<'a> {
                 kind: *kind,
                 value: value.as_str(),
             }),
+            ast::Expr::StringLiteralNew(_) => todo!(),
+            ast::Expr::BytesLiteralNew(_) => todo!(),
+            ast::Expr::FStringNew(_) => todo!(),
         }
     }
 }

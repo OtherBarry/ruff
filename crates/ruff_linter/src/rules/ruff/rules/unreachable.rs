@@ -652,6 +652,9 @@ impl<'stmt> BasicBlocksBuilder<'stmt> {
                         | Expr::Yield(_)
                         | Expr::YieldFrom(_) => self.unconditional_next_block(after),
                         Expr::IpyEscapeCommand(_) => todo!(),
+                        Expr::StringLiteralNew(_) => todo!(),
+                        Expr::BytesLiteralNew(_) => todo!(),
+                        Expr::FStringNew(_) => todo!(),
                     }
                 }
                 // The tough branches are done, here is an easy one.

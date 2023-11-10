@@ -217,5 +217,8 @@ pub fn relocate_expr(expr: &mut Expr, location: TextRange) {
         Expr::IpyEscapeCommand(nodes::ExprIpyEscapeCommand { range, .. }) => {
             *range = location;
         }
+        Expr::StringLiteralNew(_) => todo!(),
+        Expr::BytesLiteralNew(_) => todo!(),
+        Expr::FStringNew(_) => todo!(),
     }
 }

@@ -290,6 +290,9 @@ where
             Expr::Tuple(expr) => expr.visit_preorder(visitor),
             Expr::Slice(expr) => expr.visit_preorder(visitor),
             Expr::IpyEscapeCommand(expr) => expr.visit_preorder(visitor),
+            Expr::StringLiteralNew(_) => todo!(),
+            Expr::BytesLiteralNew(_) => todo!(),
+            Expr::FStringNew(_) => todo!(),
         }
     }
 

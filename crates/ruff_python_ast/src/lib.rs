@@ -1,5 +1,6 @@
 use std::path::Path;
 
+pub use concatenated::*;
 pub use expression::*;
 pub use int::*;
 pub use node::{AnyNode, AnyNodeRef, AstNode, NodeKind};
@@ -8,6 +9,7 @@ pub use nodes::*;
 pub mod all;
 pub mod call_path;
 pub mod comparable;
+pub mod concatenated;
 pub mod docstrings;
 mod expression;
 pub mod hashable;
